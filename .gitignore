@@ -1,0 +1,13 @@
+# 预训练权重：从 Ultralytics 官方下载（ultralytics 包自动下载）
+*.pt
+
+# 大体积/可再生成产物
+yolo26s.onnx
+yolo26n_dyn.onnx
+yolo26n_e2e.onnx
+*.npy
+
+# python
+__pycache__/
+*.pyc
+*.part
