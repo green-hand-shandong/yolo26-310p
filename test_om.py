@@ -92,7 +92,13 @@ for _ in range(10):
 
 host_out = np.empty(out_size // 4, dtype=np.float32)
 check(acl.rt.memcpy(acl.util.numpy_to_ptr(host_out), out_size, dev_out, out_size, ACL_MEMCPY_DEVICE_TO_HOST), "D2H")
-out = host_out.reshape(BATCH, 300, 6)
+# 兼容不同任务头: 分类 (B,1000) / 姿态 (B,300,57) / 检测 (B,300,6)
+if out_size // 4 == BATCH * 1000:
+    out = host_out.reshape(BATCH, 1000)
+elif out_size // 4 == BATCH * 300 * 57:
+    out = host_out.reshape(BATCH, 300, 57)
+else:
+    out = host_out.reshape(BATCH, 300, 6)
 np.save(OUT_NPY, out)
 print(f"output shape: {out.shape}, saved to {OUT_NPY}")
 

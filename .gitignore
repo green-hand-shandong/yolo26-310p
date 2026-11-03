@@ -11,3 +11,4 @@ yolo26n_e2e.onnx
 __pycache__/
 *.pyc
 *.part
+yolo26n_obb_nms_310p_linux_aarch64.om

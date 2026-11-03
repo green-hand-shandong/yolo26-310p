@@ -113,3 +113,23 @@ docker run --rm --runtime=ascend -e ASCEND_VISIBLE_DEVICES=0 -v $PWD:/work \
 - 模型：[Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26/)（AGPL-3.0），本仓库的 ONNX/OM 模型由其官方预训练权重转换而来，遵循相同许可证
 - 硬件/工具链：华为 Atlas 300I Duo（Ascend 310P3）、CANN 8.5/9.0.1（ATC、pyACL）
 - 验证日期：2026-10-29（结构验证）、2026-11-02（预训练权重功能/性能验证）
+
+
+## YOLO26 各任务 310P 支持矩阵（2026-11-03 实测）
+
+| 任务 | 预训练权重 | ATC | 真机推理 | 数值验证 | 延迟(bs=1) | 备注 |
+|---|---|---|---|---|---|---|
+| 检测 detect | ✅ yolo26n/s | ✅ 一次过 | ✅ | ✅ fp32 4/4 匹配 | 4.64ms | 已开源 |
+| 姿态 pose | ✅ yolo26n-pose | ✅ 一次过 | ✅ | ✅ 关键点偏差<0.1px | 4.17ms | RLE 头无新增算子 |
+| 实例分割 seg | ✅ yolo26n-seg | ✅ 一次过 | ✅ | ✅ 掩码系数偏差≤0.002 | 5.42ms | 多输出缓冲修复 |
+| 分类 cls | ✅ yolo26n-cls | ✅ 一次过 | ✅ | ✅ top5 一致 | 0.65ms | 最轻任务 |
+| OBB 旋转框 | ✅ yolo26n-obb | ✅ | ✅ | ⚠️ e2e 头 box 异常；one2many 路径已通 | 9.77ms | DOTA 航拍样本待补数值闭环 |
+| 语义分割 sem | ❌ 无官方权重 | — | — | — | — | 仅 YAML 结构 |
+| 深度估计 depth | ❌ 无官方权重 | — | — | — | — | 仅 YAML 结构 |
+| 跟踪 track | ✅ detect + ByteTrack | — | ✅ 数据流验证 | — | — | detect 输出 [N,6] 直接对接 |
+
+### OBB e2e 头 box 异常的根因与替代路径
+- **现象**：e2e 导出的 OM，box 列输出值域 0~1（应为像素量级 3~1021），score 全 0.447（letterbox 灰度 114/255 的比例）
+- **根因**：CANN 8.5/9.0.1 的动态 TopK+GatherElements 图存在 blob 地址重叠 bug（输出 blob 与输入 blob 共享内存）
+- **替代路径（已验证）**：导出 `nms=True`（one2many），NMS 内嵌生效，box 值域正确（0~1006），9.77ms
+- **遗留**：DOTA 航拍样本（非街景）的数值闭环验证，留待下一轮
