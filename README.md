@@ -123,9 +123,9 @@ docker run --rm --runtime=ascend -e ASCEND_VISIBLE_DEVICES=0 -v $PWD:/work \
 | 姿态 pose | ✅ yolo26n-pose | ✅ 一次过 | ✅ | ✅ 关键点偏差<0.1px | 4.17ms | RLE 头无新增算子 |
 | 实例分割 seg | ✅ yolo26n-seg | ✅ 一次过 | ✅ | ✅ 掩码系数偏差≤0.002 | 5.42ms | 多输出缓冲修复 |
 | 分类 cls | ✅ yolo26n-cls | ✅ 一次过 | ✅ | ✅ top5 一致 | 0.65ms | 最轻任务 |
-| OBB 旋转框 | ✅ yolo26n-obb | ✅ | ✅ | ⚠️ e2e 头 box 异常；one2many 路径已通 | 9.77ms | DOTA 航拍样本待补数值闭环 |
-| 语义分割 sem | ❌ 无官方权重 | — | — | — | — | 仅 YAML 结构 |
-| 深度估计 depth | ❌ 无官方权重 | — | — | — | — | 仅 YAML 结构 |
+| OBB 旋转框 | ✅ yolo26n-obb | ✅ | ✅ | ⚠️ e2e 头 box 异常；one2many 路径已通 | 9.77ms | DOTA 航拍样本待补数值闭环；sem 输出为 uint8 dtype |
+| 语义分割 sem | ✅ yolo26n-sem (19类) | ✅ 一次过 | ✅ | ✅ 像素一致率 96.67% | 7.45ms | Cityscapes 19类，uint8 ArgMax 输出 |
+| 深度估计 depth | ✅ yolo26n-depth | ✅ 一次过 | ✅ | ✅ 最大偏差 0.036m | 5.98ms | NYU Depth V2，输出米单位 [1,1,768,768] |
 | 跟踪 track | ✅ detect + ByteTrack | — | ✅ 数据流验证 | — | — | detect 输出 [N,6] 直接对接 |
 
 ### OBB e2e 头 box 异常的根因与替代路径
