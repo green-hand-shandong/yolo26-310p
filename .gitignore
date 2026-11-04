@@ -19,3 +19,4 @@ mxVision-26.1.0/
 Ascend-mindxsdk-*.run
 atc_log.txt
 baseline_check.py
+yolo26n_e2e_310p.om  # 已损坏（score 恒 0.0002），勿使用
