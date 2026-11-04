@@ -70,6 +70,9 @@ appsrc → mxpi_imagedecoder(opencv 解码) → mxpi_imageresize(640×640)
 ├── test_om.py                 # pyACL 推理/测速脚本（固定 batch / 动态 batch）
 ├── infer_test.py              # 最小化冒烟测试脚本
 ├── test_mindx_pipeline.py     # MindX Vision SDK 流水线验证（26.1.0，AIPP OM）
+├── dvpp_e2e_test.py           # 全硬件 DVPP 链路：JPEGD+VPC+OM（无 opencv，98fps@1080p）
+├── dvpp_vpc_test.py           # DVPP VPC resize 最小验证
+├── dvpp_csc_test.py           # DVPP CSC 格式探测（fmt12=BGR888 的来源）
 ├── yolo26n_e2e_aipp.om        # static AIPP OM（uint8 RGB888 输入，硬件 /255+CHW）
 ├── input_1x3x640x640.bin      # bus.jpg 预处理输入（float32 RGB CHW /255）
 ├── bus_det_310p.jpg           # 310P 推理画框结果
@@ -111,10 +114,32 @@ ATC 仅 2 条 W11001 提示（`/model.23/Mod`、`/model.23/Div_1` 未命中高�
 ## 待办
 - [ ] COCO 全集 mAP 精度回归（pt vs 310P OM fp16）
 - [ ] 多卡并行吞吐（16 芯片理论 ~9200 img/s）
-- [x] 视频流端到端（解码→AIPP/YUV→推理）——✅ MindX 流水线（opencv 路径 15.5ms/帧）；DVPP 硬件路径见 `e2e_dvpp_csc.py`（77.3fps）
+- [x] 视频流端到端（解码→预处理→推理）——✅ **全硬件 DVPP 链路** `dvpp_e2e_test.py`：1080p JPEGD 硬解码 → VPC resize+CSC 一步 → OM 推理 = **10.2ms/帧（98 fps）**，vs opencv 路线 20.8ms（提速 2.1 倍）；640 自环 6.75ms（148 fps）
 - [ ] CANN 9.x 运行时启用（需宿主驱动升级至配套版本）
-- [x] 如需动态 batch：pyACL quirk → ✅ MindX SDK 路线已验证可用
-- [ ] MindX DVPP 全硬件链路（mxpi_videodecoder + dvpp resize 替换 opencv）
+- [x] 如需动态 batch：pyACL quirk → ✅ MindX SDK 路线已验证可用（固定多 OM + 流水线）
+- [x] ~~MindX DVPP 全硬件链路~~ → ✅ **pyACL 直控 DVPP 路线**（不依赖 MindX，见 `dvpp_e2e_test.py`）；MindX 流水线 15.5ms 对照保留
+
+## 全硬件 DVPP 链路（pyACL 直控，无 opencv）
+
+```
+jpg(1080p) --JPEGD--> YUV420SP --VPC resize+CSC一步(fmt12=BGR888)--> D2D拷贝 --> OM(static AIPP)
+```
+
+| 场景 | opencv 路线 | 全硬件 DVPP | 提速 |
+|---|---|---|---|
+| 1080p 源 → 640 推理 | ~20.8ms | **10.2ms (98fps)** | 2.1× |
+| 640 源自环 | ~9.5ms | **6.75ms (148fps)** | 1.4× |
+
+分段耗时（1080p）：JPEGD 2.6ms + VPC(resize+CSC) 1.0ms + D2D 0.17ms + OM 4.5ms。
+检测数值与 opencv 路线一致（bus 0.924 vs 0.926，person×4 全部对齐）。
+
+### 310P DVPP 踩坑（实测，文档未写）
+1. **JPEGD 输出 desc 的 size 必须 ≥ 精确 YUV + 1MB**，否则 `ret_code=4`（1920×1080：精确 3110400 失败，+1MB 成功；1280×720/640×640 精确值即可）。
+2. **VPC 输出 buffer 必须用 `dvpp_malloc`**；写 `acl.rt.malloc` 普通 DDR 走慢速路径（~100ms vs ~1ms）。
+3. **BGR888 packed 的 width_stride 是 W×3 再 16 对齐**（640→1920），传 W 会走慢速/错误路径。
+4. **resize+CSC 用 `dvpp_vpc_resize_async` 一步完成**：输出 pic_desc 直接设 `format=12`（BGR888），不需要独立 `convert_color_async`（独立调用 ~100ms）。
+5. **DVPP buffer → OM 输入需 D2D 拷贝**（`acl.rt.memcpy kind=3`），仅 0.17ms。
+6. pyACL 包装签名不统一：`create_stream/create_context/malloc` 返回 `(handle, ret)`，`dvpp_create_channel_desc/create_pic_desc/create_data_buffer` 直接返回 handle；升级 CANN 后先探测再写代码。
 
 ## 复现步骤
 ```bash
