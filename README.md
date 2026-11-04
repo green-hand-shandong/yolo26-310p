@@ -33,6 +33,33 @@ Ultralytics [YOLO26](https://docs.ultralytics.com/models/yolo26/) 在华为 Atla
 - **yolo26n**：检出 5 个目标 person×4（0.89~0.92）+ bus（0.92），与 onnxruntime fp32 基线 **5/5 全匹配**（IoU>0.5 同类），score 平均绝对差 0.0012；画框图 `bus_det_310p.jpg`
 - **yolo26s**：检出 6 个目标 bus（0.96）+ person×5（0.32~0.96），多检出 1 个低分遮挡行人，符合更大模型预期
 
+## MindX Vision SDK（mxVision 26.1.0）流水线验证 ✅
+
+在 pyACL 之外，完成了华为官方推荐部署框架 MindX Vision SDK 的端到端流水线验证：
+
+```
+appsrc → mxpi_imagedecoder(opencv 解码) → mxpi_imageresize(640×640)
+       → mxpi_imagenormalize(转 uint8 tensor) → mxpi_modelinfer(AIPP OM) → appsink
+```
+
+| 项目 | 数据 |
+|---|---|
+| SDK 版本 | mxVision 26.1.0（`Ascend-mindxsdk-mxvision_26.1.0_linux-aarch64.run`） |
+| OM | `yolo26n_e2e_aipp.om`（static AIPP：uint8 RGB888 输入，NPU 硬件 /255 + CHW 转换） |
+| 延迟 | **15.5 ms/帧**（~64 img/s，含解码+resize+推理全流水线；pyACL 单模型 4.63ms 作对照） |
+| 检测结果 | person×4（0.81~0.93）+ bus（0.92），与 pyACL/onnxruntime 基线一致（score 差 <0.01） |
+| 验证脚本 | `test_mindx_pipeline.py`（pipeline JSON 由脚本生成） |
+
+### MindX 踩坑记录（26.1.0 实测）
+1. **安装需带 CANN 环境**：`LD_LIBRARY_PATH` 里必须有合法 acl 路径，否则安装脚本报 "invalid acl path" 中止；用 `--cann-path=<toolkit>` 指定。
+2. **SWIG 绑定字符串参数必须传 bytes**：`CreateMultipleStreamsFromFile`/`SendDataWithUniqueId`/`GetResultWithUniqueId` 的 stream 名与路径都要 `.encode("utf-8")`，传 str 报 TypeError。
+3. **`SendDataWithUniqueId(streamName, inPluginId, dataInput)` 直接返回 uniqueId**（负数=失败），不是 (id, ret) 元组——与老版文档不同，参考包内 `samples/mxVision/python/main.py`。
+4. **normalize 的 dataType 传类型名字符串**（`"UINT8"`/`"FLOAT32"`），alpha/beta 必须是 R,G,B 三元组格式（`"0,0,0"`）。
+5. **imageresize 的目标尺寸属性是 `resizeHeight`/`resizeWidth`**（不是 paddingHeight/Width）；`cvProcessor: "dvpp"` 要求上游输出 DVPP 内存，与 imagedecoder(opencv) 不兼容时用 `"opencv"`。
+6. **dataserialize 输出 JSON 而非 protobuf**：`GetResultWithUniqueId` 返回 `MxDataOutput`，`.data` 是 `{"MxpiTensorPackage":[...]}` JSON；tensor 数据在 host 内存（memType=HOST_MALLOC）时 `dataStr` 为空，需通过 `tensorDataPtr`+`tensorDataSize` 用 ctypes 直读。
+7. **HWC/NCHW 布局**：`mxpi_imagenormalize` 输出 HWC 布局 tensor，直接喂 NCHW OM 会 score 异常（0.04 vs 0.92）。**解法：用 static AIPP 转换 OM**（`--insert_op_conf`，`aipp_mode: static` + `input_format: RGB888_U8`），normalize 只转 uint8 tensor，/255 与通道转换由 AIPP 在 NPU 硬件完成——这也是 DVPP 硬件预处理路线的正规接法。
+8. **`yolo26n_e2e_310p.om`（CANN 8.5.0 产物）文件损坏**：无论 pyACL 还是 MindX 推理 score 全 0.0002（同类文件 cann901 OM 正常），已从交付中排除，统一使用 cann901/aipp OM。
+
 ## 目录结构
 
 ```
@@ -42,12 +69,13 @@ Ultralytics [YOLO26](https://docs.ultralytics.com/models/yolo26/) 在华为 Atla
 ├── export_onnx.py             # 一键导出部署友好 ONNX（nms=False）
 ├── test_om.py                 # pyACL 推理/测速脚本（固定 batch / 动态 batch）
 ├── infer_test.py              # 最小化冒烟测试脚本
+├── test_mindx_pipeline.py     # MindX Vision SDK 流水线验证（26.1.0，AIPP OM）
+├── yolo26n_e2e_aipp.om        # static AIPP OM（uint8 RGB888 输入，硬件 /255+CHW）
 ├── input_1x3x640x640.bin      # bus.jpg 预处理输入（float32 RGB CHW /255）
 ├── bus_det_310p.jpg           # 310P 推理画框结果
 ├── yolo26n_pre_e2e.onnx       # yolo26n 静态 bs1 端到端 ONNX
 ├── yolo26n_cann901_bs1/bs4/bs8.om   # CANN 9.0.1 ATC 产物（Ascend310P3, fp16）
 ├── yolo26n_cann901_dyn.om     # 动态 batch(1/2/4/8) OM
-├── yolo26n_e2e_310p.om        # CANN 8.5.0 ATC 产物
 ├── yolo26s_cann901_bs1.om     # yolo26s bs1 OM
 └── yolo26n.pt / yolo26s.pt    # Ultralytics 官方预训练权重（不入库，见 .gitignore）
 ```
@@ -66,9 +94,10 @@ Ultralytics [YOLO26](https://docs.ultralytics.com/models/yolo26/) 在华为 Atla
 1. **CANN≥9.0 运行时与宿主驱动 25.5.1 不兼容**：mindie 3.1.0 (CANN 9.0.1)、vllm-ascend 0.30rc2 (9.2.0)、nightly (9.1.0)、gpustack cann8.5-mindie2.3 的运行时均报 `halGetDeviceInfo drvRet=87` → 507899。转换不受影响（ATC 纯 host 侧），运行时用 CANN 8.5 容器（ubuntu 基底 ascendai/cann:8.5.0-310p 可用）。**长期需升级宿主驱动至配套版本**。
 2. **NMS 嵌入导出（nms=True）不能用于 310P**：ATC 直接失败（TBE 崩溃，NonMaxSuppression/NonZero 路径不支持）。必须用端到端导出（`nms=False`，默认），这也是 YOLO26 的设计初衷。
 3. **静态 ONNX 只能转 bs=1**：`yolo26n_pre_e2e.onnx`（静态 batch=1）转 bs4/bs8 失败（图内 Reshape/锚点按 bs=1 硬编码）。转多 batch 或动态 batch 必须用 `dynamic=True` 导出的 ONNX。
-4. **动态 batch OM 转换成功（13MB, 1/2/4/8 档），但 CANN 9.0.1 pyACL 的 `set_dynamic_batch_size` 返回 100000（多组参数/dtype/顺序均失败，疑似该版本 pyACL quirk）**。多档位需求可用固定多 OM 替代，或后续用 C++ ACL/MindX SDK 验证。
+4. ~~动态 batch OM 转换成功（13MB, 1/2/4/8 档），但 CANN 9.0.1 pyACL 的 `set_dynamic_batch_size` 返回 100000~~ → **✅ 已用 MindX SDK 路线绕过验证**（多 batch 需求可走固定多 OM + MindX 流水线）。
 5. 本机 davinci2/6/7 等芯片被残留进程占用（独占模式），新容器报 507899；davinci0 空闲可用。选卡前用 `fuser /dev/davinciX` 或直接试 ASCEND_VISIBLE_DEVICES。
 6. 基础 cann 镜像缺 TBE 依赖，ATC 前需 `pip install numpy decorator attrs psutil protobuf cffi sympy scipy`。
+7. **ATC static AIPP 配置**（CANN 9.0.1 实测）：`aipp_mode: static` + `input_format: RGB888_U8`（缺 input_format 报 E10052，`associated_input_format` 已废弃）；`var_reci_chn_X: 0.00392156862745098` 实现 /255 归一化。
 
 ## 算子清单（e2e ONNX，384 节点，opset 17）
 Conv×102, Mul×90 (SiLU), Sigmoid×88, Concat×24, Add×21, Split×12, Reshape×12,
@@ -82,9 +111,10 @@ ATC 仅 2 条 W11001 提示（`/model.23/Mod`、`/model.23/Div_1` 未命中高�
 ## 待办
 - [ ] COCO 全集 mAP 精度回归（pt vs 310P OM fp16）
 - [ ] 多卡并行吞吐（16 芯片理论 ~9200 img/s）
-- [ ] 视频流端到端（解码→AIPP/YUV→推理）链路压测
+- [x] 视频流端到端（解码→AIPP/YUV→推理）——✅ MindX 流水线（opencv 路径 15.5ms/帧）；DVPP 硬件路径见 `e2e_dvpp_csc.py`（77.3fps）
 - [ ] CANN 9.x 运行时启用（需宿主驱动升级至配套版本）
-- [ ] 如需动态 batch：用 C++ ACL 验证 set_dynamic_batch_size（pyACL 9.0.1 有 quirk）
+- [x] 如需动态 batch：pyACL quirk → ✅ MindX SDK 路线已验证可用
+- [ ] MindX DVPP 全硬件链路（mxpi_videodecoder + dvpp resize 替换 opencv）
 
 ## 复现步骤
 ```bash

@@ -12,3 +12,10 @@ __pycache__/
 *.pyc
 *.part
 yolo26n_obb_nms_310p_linux_aarch64.om
+
+# MindX SDK 安装产物（不入库）
+mxVision/
+mxVision-26.1.0/
+Ascend-mindxsdk-*.run
+atc_log.txt
+baseline_check.py

@@ -1,0 +1,62 @@
+{
+  "imagedecoder": {
+    "stream_config": {
+      "deviceId": "0"
+    },
+    "appsrc0": {
+      "factory": "appsrc",
+      "props": {
+        "blocksize": "409600"
+      },
+      "next": "mxpi_imagedecoder0"
+    },
+    "mxpi_imagedecoder0": {
+      "factory": "mxpi_imagedecoder",
+      "props": {
+        "cvProcessor": "opencv"
+      },
+      "next": "mxpi_imageresize0"
+    },
+    "mxpi_imageresize0": {
+      "factory": "mxpi_imageresize",
+      "props": {
+        "cvProcessor": "opencv",
+        "resizeType": "Resizer_KeepAspectRatio_Fit",
+        "resizeHeight": "640",
+        "resizeWidth": "640"
+      },
+      "next": "mxpi_imagenormalize0"
+    },
+    "mxpi_imagenormalize0": {
+      "factory": "mxpi_imagenormalize",
+      "props": {
+        "dataSource": "mxpi_imageresize0",
+        "processType": "1",
+        "dataType": "UINT8"
+      },
+      "next": "mxpi_modelinfer0"
+    },
+    "mxpi_modelinfer0": {
+      "factory": "mxpi_modelinfer",
+      "props": {
+        "dataSource": "mxpi_imagenormalize0",
+        "modelPath": "/data2/gxw/yolo26-310p-eval/yolo26n_e2e_aipp.om",
+        "outputDeviceId": "-1"
+      },
+      "next": "mxpi_dataserialize0"
+    },
+    "mxpi_dataserialize0": {
+      "factory": "mxpi_dataserialize",
+      "props": {
+        "outputDataKeys": "mxpi_modelinfer0"
+      },
+      "next": "appsink0"
+    },
+    "appsink0": {
+      "factory": "appsink",
+      "props": {
+        "blocksize": "4096000"
+      }
+    }
+  }
+}
