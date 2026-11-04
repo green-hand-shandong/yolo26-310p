@@ -8,8 +8,8 @@ Ultralytics [YOLO26](https://docs.ultralytics.com/models/yolo26/) 在华为 Atla
 **端到端部署验证**：算子分析 → ONNX 导出 → ATC 转换（CANN 8.5 / 9.0.1）→ pyACL 真机推理 → 功能/数值/性能实测。
 
 > **TL;DR：YOLO26（含 C2PSA 注意力）可以在 310P 上全 NPU 推理，无需任何 CPU 算子回退。
-> 单模型 4.64ms；全硬件 DVPP 链路（JPEGD 硬解码+VPC+推理）事件流水 **4.63ms/帧（216fps@640）/ 5.17ms（194fps@1080p）**，
-> 较 opencv 路线提速 4 倍，CPU 零参与图像处理。**
+> 单模型 4.64ms；全硬件 DVPP 链路事件流水 **4.63ms/帧（216fps@640）/ 5.17ms（194fps@1080p）**，较 opencv 路线提速 4 倍；
+> 视频文件链路（FFmpeg 解码+DVPP+OM）**95fps@1080p**；VDEC 硬解码阻塞在 CANN 8.2 运行时（详见踩坑 #8）。**
 
 ## 核心结论
 
@@ -117,6 +117,7 @@ ATC 仅 2 条 W11001 提示（`/model.23/Mod`、`/model.23/Div_1` 未命中高�
 - [ ] 多卡并行吞吐（16 芯片理论 ~9200 img/s）
 - [x] 视频流端到端（解码→预处理→推理）——✅ **全硬件 DVPP + 事件流水** `dvpp_pipeline_test.py`：1080p **5.17ms/帧（194 fps）** vs opencv 20.8ms（**4.0 倍**）；640 自环 4.63ms（216 fps）
 - [ ] CANN 9.x 运行时启用（需宿主驱动升级至配套版本）
+- [ ] VDEC 视频硬解码（⚠️ CANN 8.2 pyACL vdec_send_frame 签名为 5 参 "kkkkO"（反汇编确认），但 C 层返回 100000，判定 8.2.RC1 在 310P3 上 VDEC 运行时组件不完整；排查脚本 `vdec_test.py`，CANN 9.x 升级后回归；替代方案 `video_e2e_test.py` 95fps@1080p）
 - [x] 如需动态 batch：pyACL quirk → ✅ MindX SDK 路线已验证可用（固定多 OM + 流水线）
 - [x] ~~MindX DVPP 全硬件链路~~ → ✅ **pyACL 直控 DVPP 路线**（不依赖 MindX，见 `dvpp_e2e_test.py` 串行版 / `dvpp_pipeline_test.py` 流水版）
 
