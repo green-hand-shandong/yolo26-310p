@@ -8,7 +8,8 @@ Ultralytics [YOLO26](https://docs.ultralytics.com/models/yolo26/) 在华为 Atla
 **端到端部署验证**：算子分析 → ONNX 导出 → ATC 转换（CANN 8.5 / 9.0.1）→ pyACL 真机推理 → 功能/数值/性能实测。
 
 > **TL;DR：YOLO26（含 C2PSA 注意力）可以在 310P 上全 NPU 推理，无需任何 CPU 算子回退。
-> yolo26n 单流 4.64ms（216 img/s），单芯片批量吞吐 ~574 img/s。**
+> 单模型 4.64ms；全硬件 DVPP 链路（JPEGD 硬解码+VPC+推理）事件流水 **4.63ms/帧（216fps@640）/ 5.17ms（194fps@1080p）**，
+> 较 opencv 路线提速 4 倍，CPU 零参与图像处理。**
 
 ## 核心结论
 
@@ -114,10 +115,10 @@ ATC 仅 2 条 W11001 提示（`/model.23/Mod`、`/model.23/Div_1` 未命中高�
 ## 待办
 - [ ] COCO 全集 mAP 精度回归（pt vs 310P OM fp16）
 - [ ] 多卡并行吞吐（16 芯片理论 ~9200 img/s）
-- [x] 视频流端到端（解码→预处理→推理）——✅ **全硬件 DVPP 链路** `dvpp_e2e_test.py`：1080p JPEGD 硬解码 → VPC resize+CSC 一步 → OM 推理 = **10.2ms/帧（98 fps）**，vs opencv 路线 20.8ms（提速 2.1 倍）；640 自环 6.75ms（148 fps）
+- [x] 视频流端到端（解码→预处理→推理）——✅ **全硬件 DVPP + 事件流水** `dvpp_pipeline_test.py`：1080p **5.17ms/帧（194 fps）** vs opencv 20.8ms（**4.0 倍**）；640 自环 4.63ms（216 fps）
 - [ ] CANN 9.x 运行时启用（需宿主驱动升级至配套版本）
 - [x] 如需动态 batch：pyACL quirk → ✅ MindX SDK 路线已验证可用（固定多 OM + 流水线）
-- [x] ~~MindX DVPP 全硬件链路~~ → ✅ **pyACL 直控 DVPP 路线**（不依赖 MindX，见 `dvpp_e2e_test.py`）；MindX 流水线 15.5ms 对照保留
+- [x] ~~MindX DVPP 全硬件链路~~ → ✅ **pyACL 直控 DVPP 路线**（不依赖 MindX，见 `dvpp_e2e_test.py` 串行版 / `dvpp_pipeline_test.py` 流水版）
 
 ## 全硬件 DVPP 链路（pyACL 直控，无 opencv）
 
@@ -125,13 +126,24 @@ ATC 仅 2 条 W11001 提示（`/model.23/Mod`、`/model.23/Div_1` 未命中高�
 jpg(1080p) --JPEGD--> YUV420SP --VPC resize+CSC一步(fmt12=BGR888)--> D2D拷贝 --> OM(static AIPP)
 ```
 
-| 场景 | opencv 路线 | 全硬件 DVPP | 提速 |
-|---|---|---|---|
-| 1080p 源 → 640 推理 | ~20.8ms | **10.2ms (98fps)** | 2.1× |
-| 640 源自环 | ~9.5ms | **6.75ms (148fps)** | 1.4× |
+| 场景 | opencv 路线 | DVPP 串行 | **DVPP+OM 事件流水** | 总提速 |
+|---|---|---|---|---|
+| 1080p 源 → 640 推理 | ~20.8ms | 10.2ms (98fps) | **5.17ms (194fps)** | **4.0×** |
+| 640 源自环 | ~9.5ms | 6.75ms (148fps) | **4.63ms (216fps)** | 2.1× |
 
 分段耗时（1080p）：JPEGD 2.6ms + VPC(resize+CSC) 1.0ms + D2D 0.17ms + OM 4.5ms。
 检测数值与 opencv 路线一致（bus 0.924 vs 0.926，person×4 全部对齐）。
+
+### 事件流水线（`dvpp_pipeline_test.py`）
+DVPP 与 AI Core 是独立硬件单元，用双缓冲 + event 消除帧间等待：
+
+```
+帧 n:   [JPEGD+VPC n] --record_event--> [OM n]
+帧 n+1: [JPEGD+VPC n+1]（与 OM n 硬件并行）
+```
+稳态吞吐 = max(预处理 ~4.1ms, 推理 ~4.5ms) ≈ **4.6~5.2ms/帧**，达到理论并行上限。
+要点：预处理/推理各用独立 stream；`record_event`/`stream_wait_event` 建立帧内依赖；
+2 组 (RGB buffer, 输出 buffer, dataset) 交替使用防读写冲突。
 
 ### 310P DVPP 踩坑（实测，文档未写）
 1. **JPEGD 输出 desc 的 size 必须 ≥ 精确 YUV + 1MB**，否则 `ret_code=4`（1920×1080：精确 3110400 失败，+1MB 成功；1280×720/640×640 精确值即可）。
