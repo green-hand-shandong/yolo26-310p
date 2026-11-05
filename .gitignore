@@ -20,3 +20,10 @@ Ascend-mindxsdk-*.run
 atc_log.txt
 baseline_check.py
 yolo26n_e2e_310p.om  # 已损坏（score 恒 0.0002），勿使用
+
+# 训练产物
+train_out/
+train_out_log.txt
+yolo26n_npu_finetuned.pt
+yolo26n_finetuned.onnx
+yolo26n_finetuned_aipp.om

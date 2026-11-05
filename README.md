@@ -154,6 +154,36 @@ DVPP 与 AI Core 是独立硬件单元，用双缓冲 + event 消除帧间等待
 5. **DVPP buffer → OM 输入需 D2D 拷贝**（`acl.rt.memcpy kind=3`），仅 0.17ms。
 6. pyACL 包装签名不统一：`create_stream/create_context/malloc` 返回 `(handle, ret)`，`dvpp_create_channel_desc/create_pic_desc/create_data_buffer` 直接返回 handle；升级 CANN 后先探测再写代码。
 
+## NPU 训练/微调（torch_npu + ultralytics 桥接）✅
+
+310P 不仅能推理，**还能训练**。经 torch_npu 全链路实测：YOLO26n 在 NPU 上完成
+10 epoch 微调（合成 128 图数据集），训练后权重经 ONNX→ATC→NPU 推理闭环验证有效。
+
+| 指标 | 数据 |
+|---|---|
+| 训练环境 | CANN 9.0.1 + torch 2.9 + torch_npu 2.9 容器 + ultralytics 8.4.189 |
+| 训练吞吐 | 8/8 it ≈ 6.5s/epoch（bs16@640，含验证/保存），**10 epochs 共 0.032h（115s）** |
+| 训练效果 | mAP50 = 0.975 / mAP50-95 = 0.896（合成单类数据集） |
+| 部署闭环 | best.pt → ONNX(opset17) → ATC(AIPP) → NPU 推理 4 检出（conf 0.73~0.92）✅ |
+| 脚本 | `train_finetune.py` + `maxpool_bwd_patch.py`（兼容补丁集） |
+
+### NPU 训练兼容性问题清单（逐项已解，torch_npu 2.9 实测）
+1. **ultralytics 只认 CUDA API** → `torch_npu.contrib.transfer_to_npu` 桥接（torch.cuda → torch.npu 全量映射）
+2. **channels_last 默认启用**（CUDA 专属优化）→ 训练参数显式 `channels_last=False`
+3. **ArgMaxWithValue 动态编译失败**（TAL assigner）→ `torch.npu.set_compile_mode(jit_compile=False)` 单算子模式
+4. **MaxPool2d 反传失败**：`aclnnMaxPool2dWithMaskBackward` 支持列表为空（CANN 9.0.1 bug）
+   → `maxpool_bwd_patch.py` 把 nn.MaxPool2d 类替换为自定义 autograd（近似梯度，窗口均摊）
+5. **AdamW foreach 失败**：`aclnnApplyAdamWV2` 无二进制 → 强制 `foreach=False` 逐参数实现
+6. **'cuda:0' 设备解析**：transfer_to_npu 桥接后 `torch.device('cuda:0')` 在 torch_npu 内部
+   被拒 → 修改 torch_npu/npu/utils.py 的 device.type 检查接受 'cuda' 别名
+7. **nan_to_num_ 无算子**（ckpt 保存时）→ CPU 中转补丁
+
+### 训练定位建议
+- **业务数据微调**（冻结 backbone/小学习率）是 310P 训练的合理定位：1 万张数据集约
+  0.5~1 小时/10 epoch，"边部署边微调"闭环成立
+- **从零训练**不划算（COCO 全量 500 epoch 需 ~500h/芯片），预训练权重用官方 GPU 产物
+- 前向+反传算子（Conv/BN/SiLU/MaxPool 前向反向）均已验证 native NPU 支持
+
 ## 复现步骤
 ```bash
 # 1. 导出 ONNX（本机 ultralytics>=8.4，预训练权重自动下载）
