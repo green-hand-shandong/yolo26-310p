@@ -231,3 +231,35 @@ docker run --rm --runtime=ascend -e ASCEND_VISIBLE_DEVICES=0 -v $PWD:/work \
 - **根因**：CANN 8.5/9.0.1 的动态 TopK+GatherElements 图存在 blob 地址重叠 bug（输出 blob 与输入 blob 共享内存）
 - **替代路径（已验证）**：导出 `nms=True`（one2many），NMS 内嵌生效，box 值域正确（0~1006），9.77ms
 - **遗留**：DOTA 航拍样本（非街景）的数值闭环验证，留待下一轮
+
+## 性能基线与优化方向（2026-11-06 补充）
+
+### 横向对比（yolo26n detect，640×640，fp16，bs=1）
+
+| 平台 | 延迟 | 单流吞吐 | 备注 |
+|---|---|---|---|
+| RTX 4090 (TensorRT) | ~0.6ms | ~1600fps | 旗舰参照 |
+| T4 (TensorRT) | ~1.9ms | ~520fps | 310P3 同级对标 |
+| **310P3（本仓库）** | **4.64ms** | **215fps（batch 574fps）** | 本项目 |
+| Jetson Orin Nano | ~6-8ms | ~130fps | 边缘端 |
+| 8 核 CPU | ~45ms | ~22fps | 下限参照 |
+
+结论：与同价位 N 卡（T4）有 ~2.7 倍差距，属于**平台代差**（算力 70 vs 130 TOPS、
+带宽 51 vs 320 GB/s）+ 昇腾软件栈成熟度差异，非本仓库优化不足——batch8 的
+574fps 已接近单芯片提交路径的利用上限（见下方 DP 实测）。
+
+### 已做完的软件优化（本仓库内）
+1. 全硬件 DVPP 预处理链路（JPEGD 硬解码，CPU 零参与）
+2. 事件流水双 buffer（DVPP 与 AI Core 重叠）
+3. batch 摊薄：bs8 从 369us/img 降到 43us/img（8.6 倍）
+4. 多芯片 DP 扩展实测：8 芯片 4.81x（`bench_dp/` 全套实测脚本）
+
+### 剩余可优化方向（按性价比排序）
+1. **host 提交瓶颈**：CANN runtime 全局共享一条提交路径（~15K fps 上限，
+   实测证据见 `notes_parallel_architecture.md` DP 章节）——等 CANN 新版
+   支持多提交队列；应用侧无解
+2. **FP16 推理已开**；INT8 量化（AMCT）预计再 1.5~2 倍，代价是精度校准流程
+3. **算子融合**：e2e 导出的 OM 已含基础融合；剩余 gap 在 CANN 编译器，
+   应用侧无解
+4. **多进程分片**：8 芯片 4.81x 接近线性（每芯片独立提交路径）——
+   服务化部署时按芯片分进程是当前架构下的最优解

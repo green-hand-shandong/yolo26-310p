@@ -27,3 +27,6 @@ train_out_log.txt
 yolo26n_npu_finetuned.pt
 yolo26n_finetuned.onnx
 yolo26n_finetuned_aipp.om
+
+# DP 基准临时容器产物
+acl_cpp
