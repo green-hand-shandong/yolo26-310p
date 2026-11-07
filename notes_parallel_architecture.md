@@ -118,3 +118,27 @@ DP 接近 2x。**部署侧正确姿势：每芯片 1 进程 + 进程内攒批（
 限制（8 芯片 4.81x，距 8x 甚远）。提高 DP 效率的唯一代码级杠杆仍是
 **攒批**（把 350us 固定开销摊到多图）；跨卡/同卡选择对性能无影响，
 按业务路由方便性分配即可。
+
+
+### 阶段 D 实测结论（2026-11-07）
+
+**VDEC 硬解码**：本机 driver 无 VDEC 引擎。CANN 8.5 容器 create_channel_desc
+返回 null（dvpp kernel version mismatch 107002），宿主 driver 25.5.1 内无任何
+vdec 组件（strings 扫描 0 命中）。Atlas 300I Duo 的 VDEC 是可选部件，本机
+出厂 driver 未含。**硬件缺失，非软件可修**。视频流解码维持 FFmpeg CPU 方案。
+
+**多 stream 并发提交**：cann9.0.1 pyACL 上 2/4/8 stream 全部死锁
+（200-2000 iter 均挂起，单 stream 216fps 正常）。多 stream 无法绕过
+host 提交瓶颈，应用侧 workaround 全部堵死：
+
+| 尝试 | 结果 |
+|---|---|
+| 多 stream 异步流水 | ❌ 死锁（pyACL/驱动层） |
+| C++ ACL 绕过 pyACL | ❌ 同一驱动路径，固定开销不变 |
+| 换 CANN 8.2/8.5/9.0.1 容器 | ❌ 全部同样表现 |
+| 换卡位/跨卡 | ❌ 拓扑无差异 |
+
+**最终定论**：bs1 小任务下 host 提交瓶颈（~350us/execute 驱动固定开销，
+全局单路径串行）在应用侧无解，是 CANN runtime 的架构限制。有效策略
+只有两个：**batch 摊薄**（bs8: 8.6x 摊薄，574fps/芯片）和**多芯片分片**
+（8 芯片 4.81x）。视频流场景（DVPP+推理重叠）天然受影响较小。
