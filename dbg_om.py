@@ -1,0 +1,30 @@
+import sys, os
+import acl, numpy as np
+
+def log(*a):
+    print(*a); sys.stdout.flush()
+
+acl.init(); acl.rt.set_device(0); acl.rt.create_context(0)
+log('acl ready')
+mid, r = acl.mdl.load_from_file(sys.argv[1])
+log('load:', r)
+desc = acl.mdl.create_desc()
+acl.mdl.get_desc(mid, desc)
+n_out = acl.mdl.get_num_outputs(desc)
+out_size = acl.mdl.get_output_size_by_index(desc, 0)
+in_size = acl.mdl.get_input_size_by_index(desc, 0)
+log(f'inputs={acl.mdl.get_num_inputs(desc)} outputs={n_out} in_size={in_size} out_size={out_size}')
+np_in = np.fromfile('/work/input_1x3x640x640.bin', dtype=np.float32)
+dev_in, r = acl.rt.malloc(in_size, 0)
+acl.rt.memcpy(dev_in, in_size, acl.util.numpy_to_ptr(np_in), in_size, 1)
+dev_out, r = acl.rt.malloc(out_size, 0)
+in_ds = acl.mdl.create_dataset()
+buf, r = acl.create_data_buffer(dev_in, in_size); acl.mdl.add_dataset_buffer(in_ds, buf)
+out_ds = acl.mdl.create_dataset()
+buf, r = acl.create_data_buffer(dev_out, out_size); acl.mdl.add_dataset_buffer(out_ds, buf)
+log('executing...')
+r = acl.mdl.execute(mid, in_ds, out_ds)
+log('execute:', r)
+host = np.empty(out_size // 4, dtype=np.float32)
+acl.rt.memcpy(acl.util.numpy_to_ptr(host), out_size, dev_out, out_size, 2)
+log('D2H ok, stats: min', host.min(), 'max', host.max())
