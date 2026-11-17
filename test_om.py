@@ -97,6 +97,8 @@ if out_size // 4 == BATCH * 1000:
     out = host_out.reshape(BATCH, 1000)
 elif out_size // 4 == BATCH * 300 * 57:
     out = host_out.reshape(BATCH, 300, 57)
+elif out_size // 4 == BATCH * 84 * 8400:
+    out = host_out.reshape(BATCH, 84, 8400)  # 常规头: host 侧做 NMS
 else:
     out = host_out.reshape(BATCH, 300, 6)
 np.save(OUT_NPY, out)

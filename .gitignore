@@ -30,3 +30,21 @@ yolo26n_finetuned_aipp.om
 
 # DP 基准临时容器产物
 acl_cpp
+
+# AMCT 量化产物（大体积/可再生成）
+amct_out/
+amct_onnx_calib*/
+amct_log/
+amct_venv/
+*.om
+prune_out/
+distill_out/
+mini_npu_out.npy
+mini_input.npy
+dbg_out.log
+amct_venv2/
+kernel_meta/
+fusion_result.json
+ge_check_op.json
+check_result.json
+sem_masks/

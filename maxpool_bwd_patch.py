@@ -90,19 +90,36 @@ def patch_device_prop():
     torch.cuda.get_device_properties = fixed
     return True
 
+def _cuda_like_to_int(device):
+    """'cuda:0' / torch.device('cuda:0') / 'npu:0' -> int；其余原样返回"""
+    if isinstance(device, str) and 'cuda' in device:
+        return int(device.split(':')[-1]) if ':' in device else 0
+    if hasattr(device, 'type') and getattr(device, 'type', '') == 'cuda':
+        return int(getattr(device, 'index', 0) or 0)
+    return device
+
+
 def patch_npu_device_index():
     """torch_npu._get_device_index 收到 'cuda:0' 字符串时转 int"""
     import torch_npu.npu.utils as npu_utils
     _orig = npu_utils._get_device_index
     def fixed(device=None, optional=False):
-        if isinstance(device, str) and 'cuda' in device:
-            device = int(device.split(':')[-1]) if ':' in device else 0
-        return _orig(device, optional)
+        return _orig(_cuda_like_to_int(device), optional)
     npu_utils._get_device_index = fixed
     # torch_npu.npu.__init__ 里 from utils import _get_device_index 是按名绑定，需同时替换
     import torch_npu.npu as npu_mod
     if hasattr(npu_mod, '_get_device_index'):
         npu_mod._get_device_index = fixed
+    # get_device_properties / memory APIs 内部各自持引用，直接包最外层入口
+    _orig_props = npu_mod.get_device_properties
+    def props_fixed(device=None):
+        return _orig_props(_cuda_like_to_int(device))
+    npu_mod.get_device_properties = props_fixed
+    if hasattr(npu_mod, 'get_device_capability'):
+        _orig_cap = npu_mod.get_device_capability
+        def cap_fixed(device=None):
+            return _orig_cap(_cuda_like_to_int(device))
+        npu_mod.get_device_capability = cap_fixed
     return True
 
 def patch_nan_to_num():
