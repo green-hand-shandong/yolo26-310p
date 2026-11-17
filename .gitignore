@@ -48,3 +48,6 @@ fusion_result.json
 ge_check_op.json
 check_result.json
 sem_masks/
+sem_masks/
+*.onnx
+*.onnx

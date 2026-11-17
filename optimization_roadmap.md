@@ -16,6 +16,7 @@
 | YOLOv9c | ✅ 一次过 | 12.11 | 82.6 | ❌→**✅ 修复后** 50 检出 0.959 | raw | 同上；模型大 |
 | **YOLOv6n** | ✅（修 DOUBLE 常量后） | **3.12** | **320.5** | 52 ✓ | raw (1,8400,85) | **全场最快**；独立仓库 meituan/YOLOv6 |
 | RT-DETR-L | ✅（GridSample 拆解后） | 289.6 | 3.5 | 5/5 匹配 CPU ✓ | e2e (1,300,6) | GridSample 拆解为 18×基础算子；**功能可行但拆解代价巨大** |
+| RT-DETR-L 融合版 | ✅（batched GE+ReduceSum） | 282.5 | 3.5 | 5/5 ✓ | e2e | 融合版仅快 2.4%——**瓶颈是动态采样访存本身，非节点数** |
 
 ### 🐛 重要发现：8.2 opp 的 AveragePool 在 310P3 上数值错误
 - **现象**：YOLOv9t/v9c 在 CPU ORT 上完全正常（50 检出、conf 0.93+），但 NPU 上 cls 端全错
@@ -32,7 +33,7 @@
 1. **默认 YOLO26n**：e2e 免 NMS + 4.64ms，与 DVPP 流水线配合最优
 2. **吞吐优先 + 自带 NMS**：YOLOv6n（**3.12ms / 320fps 全场最快**）或 YOLOv8n（4.13ms）
 3. v12 慢（7.84ms）、v10（6.10ms）、v9 修复后可用但慢（7.4~12.1ms）——均不如 26/v6/v8
-4. RT-DETR：GridSample 拆解后功能可行（5/5 检出匹配），但 289ms 不实用——除非拆解图做算子融合优化
+4. RT-DETR：GridSample 拆解后功能可行（5/5 检出匹配），但 289ms 不实用。融合版（单次 batched GatherElements + ReduceSum，节点数减 60%）也只到 282.5ms——**瓶颈是 18 个动态采样点在 AI Core 上的访存模式本身**，图层面无解；需要 CANN 原生 GridSample 算子或 CPU/NPU 异构（decoder 段回退 CPU）才实用
 5. **检测模型已全覆盖**：26/11/12/v5/v6/v8/v9t/v9c/v10/RT-DETR 共 10 类
    —— 10 类全部编译通过、9 类数值正确、RT-DETR 可用但慢
 6. 适配资产：`export_all_versions.py`、`gridsample_decomp.py`（GridSample 图拆解器，可复用于其它含 GridSample 的模型）、
