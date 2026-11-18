@@ -17,7 +17,7 @@
 | **YOLOv6n** | ✅（修 DOUBLE 常量后） | **3.12** | **320.5** | 52 ✓ | raw (1,8400,85) | **全场最快**；独立仓库 meituan/YOLOv6 |
 | RT-DETR-L | ✅（GridSample 拆解后） | 289.6 | 3.5 | 5/5 匹配 CPU ✓ | e2e (1,300,6) | GridSample 拆解为 18×基础算子；**功能可行但拆解代价巨大** |
 | RT-DETR-L 融合版 | ✅（batched GE+ReduceSum） | 282.5 | 3.5 | 5/5 ✓ | e2e | 融合版仅快 2.4%——**瓶颈是动态采样访存本身，非节点数** |
-| RT-DETR-L 原生 | ✅ 编译成功（C++ 头路径修复） | 执行挂死 | — | — | e2e | CANN 8.2 已带 310P GridSample Ascend C 实现（grid_sampler_2d_fullLoad_310p.h），ATC 编译需补 CPLUS_INCLUDE_PATH（cstdint），但真机执行死循环（CPU 100% 67min 无输出）——**算子实现有运行 bug** |
+| RT-DETR-L 原生 | ✅ 编译成功（C++ 头路径修复） | ❌ ret=107002 | — | — | e2e | CANN 8.2 已带 310P GridSample Ascend C 实现（grid_sampler_2d_fullLoad_310p.h），ATC 编译需补 CPLUS_INCLUDE_PATH（cstdint）；pyACL get_desc 段错误（含 Ascend C 算子的 OM 通病），跳过 desc 直接 execute 返回 107002 内部错误——**算子实现不可用** |
 
 ### 🐛 重要发现：8.2 opp 的 AveragePool 在 310P3 上数值错误
 - **现象**：YOLOv9t/v9c 在 CPU ORT 上完全正常（50 检出、conf 0.93+），但 NPU 上 cls 端全错
@@ -37,7 +37,7 @@
 4. RT-DETR：GridSample 三条路全部实测：
    a) 拆解 v1：289.6ms，功能可行
    b) 拆解 v2 融合（batched GE + ReduceSum，节点 -60%）：282.5ms——**瓶颈是动态采样访存本身，图层面无解**
-   c) CANN 8.2 原生 Ascend C 实现：编译成功（需 CPLUS_INCLUDE_PATH 修复 cstdint 找不到），但**真机执行挂死**（CPU 100% 死循环），算子运行有 bug
+   c) CANN 8.2 原生 Ascend C 实现：编译成功（需 CPLUS_INCLUDE_PATH 修复 cstdint 找不到），但 execute 返回 107002 内部错误（pyACL get_desc 对含 Ascend C 算子的 OM 会段错误，需跳过 desc 直接按已知 shape 构造 dataset）
    → 310P 上 RT-DETR 实用化需 CANN 9.x 修复原生算子，或 decoder 段回退 CPU 异构
 5. **检测模型已全覆盖**：26/11/12/v5/v6/v8/v9t/v9c/v10/RT-DETR 共 10 类
    —— 10 类全部编译通过、9 类数值正确、RT-DETR 可用但慢
