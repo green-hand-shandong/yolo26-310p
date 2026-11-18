@@ -5,6 +5,7 @@ r = acl.init()
 if r != 0 and r != 500000: log(f'init {r}'); sys.exit(1)
 check = acl.rt.set_device(0); log(f'dev {check}')
 ctx, r = acl.rt.create_context(0); log(f'ctx {r}')
+acl.rt.set_context(ctx); log('set_context done')
 mid, r = acl.mdl.load_from_file(OM); log(f'load {r}')
 # 跳过 desc！直接按已知形状构造 dataset: input (1,3,640,640) f32, output (1,300,6) f32
 in_size = 1*3*640*640*4
