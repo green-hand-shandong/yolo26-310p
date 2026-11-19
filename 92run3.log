@@ -1,0 +1,10 @@
+inputs=1 outputs=5
+out_sizes=[7200, 4800, 96000, 4800, 96000]
+/work/dbg_exec_92.py:27: Warning: acl.util.numpy_to_ptr will be deprecated. Please use acl.util.bytes_to_ptr instead.
+  check(acl.rt.memcpy(dev_ins[0], in_sizes[0], acl.util.numpy_to_ptr(x), in_sizes[0], 1), 'H2D')
+executing...
+execute ret=500002 time=0.00s
+/work/dbg_exec_92.py:47: Warning: acl.util.numpy_to_ptr will be deprecated. Please use acl.util.bytes_to_ptr instead.
+  check(acl.rt.memcpy(acl.util.numpy_to_ptr(host), out_sizes[0], dev_outs[0], out_sizes[0], 2), 'D2H')
+dets(conf>0.5): 0
+SAVED

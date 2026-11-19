@@ -19,6 +19,7 @@
 | RT-DETR-L 融合版 | ✅（batched GE+ReduceSum） | 282.5 | 3.5 | 5/5 ✓ | e2e | 融合版仅快 2.4%——**瓶颈是动态采样访存本身，非节点数** |
 | RT-DETR-L 原生（CANN 9.2） | ✅ | **11.64** | **85.9** | 5/5 ✓ | e2e (300,6) | **CANN 9.2 自带 310P GridSample 预编译算子**（ops_cv/grid_sample high_performance.o），ATC 一次过 + NPU 执行正确。pyACL get_desc 对该 OM 段错误，需 C++ ACL 或跳过 desc |
 | RT-DETR-L 原生（CANN 8.2） | ✅ 编译成功（C++ 头路径修复） | ❌ ret=107002 | — | — | e2e | 8.2 的 Ascend C 实现编译过但执行报 107002——算子实现有 bug |
+| YOLO26n-OBB e2e（CANN 9.2） | ✅ 编译成功（8.2 失败） | — | — | 待航拍测试图 | e2e (300,7) | 9.2 一次过编译；现有导出图 col4 恒 0（8.2 时代导出图异常），数值对拍待 DOTA 航拍图 |
 
 ### 🐛 重要发现：8.2 opp 的 AveragePool 在 310P3 上数值错误
 - **现象**：YOLOv9t/v9c 在 CPU ORT 上完全正常（50 检出、conf 0.93+），但 NPU 上 cls 端全错
